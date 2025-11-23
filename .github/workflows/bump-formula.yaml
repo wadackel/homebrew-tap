@@ -1,0 +1,280 @@
+name: Bump Formula
+
+# Automatically updates Homebrew formula when triggered from release workflow
+on:
+  workflow_dispatch:
+    inputs:
+      formula:
+        description: 'Formula name (e.g., ofsht)'
+        required: true
+        type: string
+      version:
+        description: 'Version tag (e.g., v0.1.5)'
+        required: true
+        type: string
+      repository:
+        description: 'Source repository (e.g., wadackel/ofsht)'
+        required: true
+        type: string
+
+jobs:
+  update-formula:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout tap repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Homebrew
+        run: |
+          echo "/opt/homebrew/bin" >> $GITHUB_PATH
+
+      - name: Validate and sanitize inputs
+        id: validate
+        run: |
+          set -euo pipefail
+          set -x
+
+          # Error trap for debugging
+          trap 'echo "Error on line $LINENO"' ERR
+
+          # Sanitize inputs (only allow alphanumeric, dots, hyphens, underscores, slashes)
+          FORMULA_RAW="${{ inputs.formula }}"
+          VERSION_RAW="${{ inputs.version }}"
+          REPO_RAW="${{ inputs.repository }}"
+
+          # Validate formula name (alphanumeric, hyphens, underscores only)
+          if ! printf '%s' "$FORMULA_RAW" | grep -qE '^[a-zA-Z0-9_-]+$'; then
+            echo "Error: Invalid formula name '$FORMULA_RAW'"
+            exit 1
+          fi
+
+          # Validate version (v-prefix optional, semver-like)
+          if ! printf '%s' "$VERSION_RAW" | grep -qE '^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$'; then
+            echo "Error: Invalid version '$VERSION_RAW'"
+            exit 1
+          fi
+
+          # Validate repository (owner/repo format, restrict to wadackel org for security)
+          if ! printf '%s' "$REPO_RAW" | grep -qE '^wadackel/[a-zA-Z0-9_-]+$'; then
+            echo "Error: Invalid or unauthorized repository '$REPO_RAW' (must be wadackel/*)"
+            exit 1
+          fi
+
+          # Store sanitized values
+          FORMULA="$FORMULA_RAW"
+          VERSION="$VERSION_RAW"
+          REPO="$REPO_RAW"
+
+          echo "formula=$FORMULA" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "repository=$REPO" >> "$GITHUB_OUTPUT"
+
+          echo "Validated inputs: formula=$FORMULA, version=$VERSION, repository=$REPO"
+
+      - name: Download and calculate SHA256 checksums
+        id: checksums
+        run: |
+          set -euo pipefail
+          set -x
+          trap 'echo "Error on line $LINENO"' ERR
+
+          FORMULA="${{ steps.validate.outputs.formula }}"
+          VERSION="${{ steps.validate.outputs.version }}"
+          REPO="${{ steps.validate.outputs.repository }}"
+
+          # Create temporary directory for downloads
+          TMPDIR=$(mktemp -d)
+          trap 'rm -rf "$TMPDIR"' EXIT
+
+          echo "Downloading release assets for $FORMULA $VERSION..."
+
+          # Download arm64 binary
+          ARM64_FILE="$TMPDIR/${FORMULA}-aarch64-apple-darwin.tar.gz"
+          ARM64_URL="https://github.com/${REPO}/releases/download/${VERSION}/${FORMULA}-aarch64-apple-darwin.tar.gz"
+          echo "Downloading arm64 from: $ARM64_URL"
+
+          if ! curl -fSL --retry 3 --retry-delay 2 -o "$ARM64_FILE" "$ARM64_URL"; then
+            echo "Error: Failed to download arm64 asset from $ARM64_URL"
+            exit 1
+          fi
+
+          # Verify file was downloaded and has reasonable size
+          ARM64_SIZE=$(stat -f%z "$ARM64_FILE" 2>/dev/null || stat -c%s "$ARM64_FILE")
+          if [ "$ARM64_SIZE" -lt 1000 ]; then
+            echo "Error: Downloaded arm64 file is too small ($ARM64_SIZE bytes), likely an error page"
+            cat "$ARM64_FILE"
+            exit 1
+          fi
+
+          ARM64_SHA=$(shasum -a 256 "$ARM64_FILE" | awk '{print $1}')
+          echo "arm64_sha=$ARM64_SHA" >> "$GITHUB_OUTPUT"
+          echo "ARM64 SHA256: $ARM64_SHA (size: $ARM64_SIZE bytes)"
+
+          # Download x86_64 binary
+          X86_64_FILE="$TMPDIR/${FORMULA}-x86_64-apple-darwin.tar.gz"
+          X86_64_URL="https://github.com/${REPO}/releases/download/${VERSION}/${FORMULA}-x86_64-apple-darwin.tar.gz"
+          echo "Downloading x86_64 from: $X86_64_URL"
+
+          if ! curl -fSL --retry 3 --retry-delay 2 -o "$X86_64_FILE" "$X86_64_URL"; then
+            echo "Error: Failed to download x86_64 asset from $X86_64_URL"
+            exit 1
+          fi
+
+          X86_64_SIZE=$(stat -f%z "$X86_64_FILE" 2>/dev/null || stat -c%s "$X86_64_FILE")
+          if [ "$X86_64_SIZE" -lt 1000 ]; then
+            echo "Error: Downloaded x86_64 file is too small ($X86_64_SIZE bytes), likely an error page"
+            cat "$X86_64_FILE"
+            exit 1
+          fi
+
+          X86_64_SHA=$(shasum -a 256 "$X86_64_FILE" | awk '{print $1}')
+          echo "x86_64_sha=$X86_64_SHA" >> "$GITHUB_OUTPUT"
+          echo "X86_64 SHA256: $X86_64_SHA (size: $X86_64_SIZE bytes)"
+
+      - name: Update formula file
+        id: update
+        run: |
+          set -euo pipefail
+          set -x
+          trap 'echo "Error on line $LINENO"' ERR
+
+          FORMULA="${{ steps.validate.outputs.formula }}"
+          VERSION="${{ steps.validate.outputs.version }}"
+          ARM64_SHA="${{ steps.checksums.outputs.arm64_sha }}"
+          X86_64_SHA="${{ steps.checksums.outputs.x86_64_sha }}"
+
+          FORMULA_FILE="Formula/${FORMULA}.rb"
+
+          if [ ! -f "$FORMULA_FILE" ]; then
+            echo "Error: Formula file $FORMULA_FILE not found"
+            exit 1
+          fi
+
+          echo "Updating $FORMULA_FILE to version $VERSION..."
+          echo "Before update:"
+          cat "$FORMULA_FILE"
+
+          # Escape special characters in FORMULA for use in sed regex
+          FORMULA_ESCAPED=$(printf '%s' "$FORMULA" | sed 's/[\/&]/\\&/g')
+          VERSION_ESCAPED=$(printf '%s' "$VERSION" | sed 's/[\/&]/\\&/g')
+
+          # Update URLs and SHA256s using more robust patterns
+          # Pattern matches: download/<any-version-string>/<formula>-aarch64
+          sed -i.bak -E "s|download/[^/]+/${FORMULA_ESCAPED}-aarch64|download/${VERSION_ESCAPED}/${FORMULA_ESCAPED}-aarch64|g" "$FORMULA_FILE"
+          sed -i.bak -E "s|download/[^/]+/${FORMULA_ESCAPED}-x86_64|download/${VERSION_ESCAPED}/${FORMULA_ESCAPED}-x86_64|g" "$FORMULA_FILE"
+
+          # Update SHA256 values
+          sed -i.bak -E "/on_arm do/,/^[[:space:]]*end[[:space:]]*$/ s/sha256 \"[a-f0-9]+\"/sha256 \"${ARM64_SHA}\"/" "$FORMULA_FILE"
+          sed -i.bak -E "/on_intel do/,/^[[:space:]]*end[[:space:]]*$/ s/sha256 \"[a-f0-9]+\"/sha256 \"${X86_64_SHA}\"/" "$FORMULA_FILE"
+
+          # Clean up backup file
+          rm -f "${FORMULA_FILE}.bak"
+
+          echo "After update:"
+          cat "$FORMULA_FILE"
+
+          # Verify that URLs were actually updated
+          if ! grep -q "download/${VERSION}/${FORMULA}-aarch64" "$FORMULA_FILE"; then
+            echo "Error: arm64 URL was not updated correctly"
+            exit 1
+          fi
+          if ! grep -q "download/${VERSION}/${FORMULA}-x86_64" "$FORMULA_FILE"; then
+            echo "Error: x86_64 URL was not updated correctly"
+            exit 1
+          fi
+
+          # Verify that SHA256s were updated
+          if ! grep -q "$ARM64_SHA" "$FORMULA_FILE"; then
+            echo "Error: arm64 SHA256 was not updated correctly"
+            exit 1
+          fi
+          if ! grep -q "$X86_64_SHA" "$FORMULA_FILE"; then
+            echo "Error: x86_64 SHA256 was not updated correctly"
+            exit 1
+          fi
+
+          echo "Formula updated successfully"
+
+      - name: Run brew audit
+        run: |
+          set -euo pipefail
+          set -x
+
+          FORMULA="${{ steps.validate.outputs.formula }}"
+
+          echo "Running brew audit on $FORMULA..."
+          brew audit --strict "Formula/${FORMULA}.rb" || {
+            echo "Warning: brew audit found issues (continuing anyway)"
+          }
+
+      - name: Create pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          set -x
+
+          FORMULA="${{ steps.validate.outputs.formula }}"
+          VERSION="${{ steps.validate.outputs.version }}"
+
+          # Create a new branch
+          BRANCH="bump-${FORMULA}-${VERSION}"
+          git checkout -b "$BRANCH"
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Add and commit changes
+          git add "Formula/${FORMULA}.rb"
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit (formula already up-to-date)"
+            exit 0
+          fi
+
+          git commit -m "$(cat <<EOF
+chore: bump ${FORMULA} to ${VERSION}
+
+Automated formula update:
+- arm64 SHA256: ${{ steps.checksums.outputs.arm64_sha }}
+- x86_64 SHA256: ${{ steps.checksums.outputs.x86_64_sha }}
+
+Release: https://github.com/${{ steps.validate.outputs.repository }}/releases/tag/${VERSION}
+EOF
+)"
+
+          # Push branch
+          git push origin "$BRANCH"
+
+          # Create PR
+          gh pr create \
+            --title "chore: bump ${FORMULA} to ${VERSION}" \
+            --body "$(cat <<EOF
+Automated formula update for \`${FORMULA}\` to version \`${VERSION}\`.
+
+## Changes
+- Updated arm64 and x86_64 download URLs
+- Updated SHA256 checksums
+
+## Checksums
+- **arm64**: \`${{ steps.checksums.outputs.arm64_sha }}\`
+- **x86_64**: \`${{ steps.checksums.outputs.x86_64_sha }}\`
+
+## Release
+https://github.com/${{ steps.validate.outputs.repository }}/releases/tag/${VERSION}
+
+## Testing
+Please verify the formula works before merging:
+\`\`\`bash
+brew install --build-from-source wadackel/tap/${FORMULA}
+brew test wadackel/tap/${FORMULA}
+\`\`\`
+EOF
+)" \
+            --head "$BRANCH" \
+            --base main
+
+          echo "Pull request created successfully"
