@@ -24,10 +24,17 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Checkout tap repository
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Homebrew
         run: |
@@ -214,7 +221,7 @@ jobs:
 
       - name: Create pull request
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
           set -x
@@ -252,31 +259,32 @@ jobs:
           # Push branch
           git push origin "$BRANCH"
 
-          # Create PR (use file for body to avoid YAML parsing issues)
+          # Create PR body with variable expansion
+          export FORMULA VERSION REPO ARM64_SHA X86_64_SHA
           cat > /tmp/pr-body.md <<'PRBODY'
-          Automated formula update for `${FORMULA}` to version `${VERSION}`.
+Automated formula update for `$FORMULA` to version `$VERSION`.
 
-          ## Changes
-          - Updated arm64 and x86_64 download URLs
-          - Updated SHA256 checksums
+## Changes
+- Updated arm64 and x86_64 download URLs
+- Updated SHA256 checksums
 
-          ## Checksums
-          - **arm64**: `${ARM64_SHA}`
-          - **x86_64**: `${X86_64_SHA}`
+## Checksums
+- **arm64**: `$ARM64_SHA`
+- **x86_64**: `$X86_64_SHA`
 
-          ## Release
-          https://github.com/${REPO}/releases/tag/${VERSION}
+## Release
+https://github.com/$REPO/releases/tag/$VERSION
 
-          ## Testing
-          Please verify the formula works before merging:
-          ```bash
-          brew install --build-from-source wadackel/tap/${FORMULA}
-          brew test wadackel/tap/${FORMULA}
-          ```
-          PRBODY
+## Testing
+Please verify the formula works before merging:
+```bash
+brew install --build-from-source wadackel/tap/$FORMULA
+brew test wadackel/tap/$FORMULA
+```
+PRBODY
 
-          # Expand variables in PR body
-          eval "echo \"$(cat /tmp/pr-body.md)\"" > /tmp/pr-body-final.md
+          # Expand variables using envsubst
+          envsubst < /tmp/pr-body.md > /tmp/pr-body-final.md
 
           gh pr create \
             --title "chore: bump ${FORMULA} to ${VERSION}" \
