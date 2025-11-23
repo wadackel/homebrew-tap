@@ -239,45 +239,45 @@ jobs:
           ARM64_SHA="${{ steps.checksums.outputs.arm64_sha }}"
           X86_64_SHA="${{ steps.checksums.outputs.x86_64_sha }}"
 
-          git commit -m "$(cat <<EOF
-chore: bump ${FORMULA} to ${VERSION}
-
-Automated formula update:
-- arm64 SHA256: ${ARM64_SHA}
-- x86_64 SHA256: ${X86_64_SHA}
-
-Release: https://github.com/${REPO}/releases/tag/${VERSION}
-EOF
-)"
+          git commit -m "chore: bump ${FORMULA} to ${VERSION}" \
+            -m "Automated formula update:" \
+            -m "arm64 SHA256: ${ARM64_SHA}" \
+            -m "x86_64 SHA256: ${X86_64_SHA}" \
+            -m "" \
+            -m "Release: https://github.com/${REPO}/releases/tag/${VERSION}"
 
           # Push branch
           git push origin "$BRANCH"
 
-          # Create PR
+          # Create PR (use file for body to avoid YAML parsing issues)
+          cat > /tmp/pr-body.md <<'PRBODY'
+          Automated formula update for `${FORMULA}` to version `${VERSION}`.
+
+          ## Changes
+          - Updated arm64 and x86_64 download URLs
+          - Updated SHA256 checksums
+
+          ## Checksums
+          - **arm64**: `${ARM64_SHA}`
+          - **x86_64**: `${X86_64_SHA}`
+
+          ## Release
+          https://github.com/${REPO}/releases/tag/${VERSION}
+
+          ## Testing
+          Please verify the formula works before merging:
+          ```bash
+          brew install --build-from-source wadackel/tap/${FORMULA}
+          brew test wadackel/tap/${FORMULA}
+          ```
+          PRBODY
+
+          # Expand variables in PR body
+          eval "echo \"$(cat /tmp/pr-body.md)\"" > /tmp/pr-body-final.md
+
           gh pr create \
             --title "chore: bump ${FORMULA} to ${VERSION}" \
-            --body "$(cat <<EOF
-Automated formula update for \`${FORMULA}\` to version \`${VERSION}\`.
-
-## Changes
-- Updated arm64 and x86_64 download URLs
-- Updated SHA256 checksums
-
-## Checksums
-- **arm64**: \`${ARM64_SHA}\`
-- **x86_64**: \`${X86_64_SHA}\`
-
-## Release
-https://github.com/${REPO}/releases/tag/${VERSION}
-
-## Testing
-Please verify the formula works before merging:
-\`\`\`bash
-brew install --build-from-source wadackel/tap/${FORMULA}
-brew test wadackel/tap/${FORMULA}
-\`\`\`
-EOF
-)" \
+            --body-file /tmp/pr-body-final.md \
             --head "$BRANCH" \
             --base main
 
