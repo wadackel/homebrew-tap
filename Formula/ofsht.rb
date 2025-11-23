@@ -1,14 +1,14 @@
 class Ofsht < Formula
   desc "Command-line tool for managing Git worktrees with automation features"
   homepage "https://github.com/wadackel/ofsht"
-  url "https://github.com/wadackel/ofsht/releases/download/v0.1.4/ofsht-aarch64-apple-darwin.tar.gz"
-  sha256 "6583812ff88305f7b9d7fb388266400e2ca3eb177754e27c3707a3f604df4973"
-  license "MIT"
+  version "0.1.4"
 
-  on_intel do
-    url "https://github.com/wadackel/ofsht/releases/download/v0.1.4/ofsht-x86_64-apple-darwin.tar.gz"
-    sha256 "54592083885b68c7ec5f6b1052d05b0f907aa0eab4699fbb09a786d184bce63b"
-  end
+  arch arm: "aarch64", intel: "x86_64"
+
+  url "https://github.com/wadackel/ofsht/releases/download/v#{version}/ofsht-#{arch}-apple-darwin.tar.gz"
+  sha256 arm:   "6583812ff88305f7b9d7fb388266400e2ca3eb177754e27c3707a3f604df4973",
+         intel: "54592083885b68c7ec5f6b1052d05b0f907aa0eab4699fbb09a786d184bce63b"
+  license "MIT"
 
   livecheck do
     url :stable
