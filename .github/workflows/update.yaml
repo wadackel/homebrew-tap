@@ -20,6 +20,9 @@ on:
 jobs:
   update-formula:
     runs-on: macos-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Checkout tap repository
         uses: actions/checkout@v4
