@@ -235,14 +235,18 @@ jobs:
             exit 0
           fi
 
+          REPO="${{ steps.validate.outputs.repository }}"
+          ARM64_SHA="${{ steps.checksums.outputs.arm64_sha }}"
+          X86_64_SHA="${{ steps.checksums.outputs.x86_64_sha }}"
+
           git commit -m "$(cat <<EOF
 chore: bump ${FORMULA} to ${VERSION}
 
 Automated formula update:
-- arm64 SHA256: ${{ steps.checksums.outputs.arm64_sha }}
-- x86_64 SHA256: ${{ steps.checksums.outputs.x86_64_sha }}
+- arm64 SHA256: ${ARM64_SHA}
+- x86_64 SHA256: ${X86_64_SHA}
 
-Release: https://github.com/${{ steps.validate.outputs.repository }}/releases/tag/${VERSION}
+Release: https://github.com/${REPO}/releases/tag/${VERSION}
 EOF
 )"
 
@@ -260,11 +264,11 @@ Automated formula update for \`${FORMULA}\` to version \`${VERSION}\`.
 - Updated SHA256 checksums
 
 ## Checksums
-- **arm64**: \`${{ steps.checksums.outputs.arm64_sha }}\`
-- **x86_64**: \`${{ steps.checksums.outputs.x86_64_sha }}\`
+- **arm64**: \`${ARM64_SHA}\`
+- **x86_64**: \`${X86_64_SHA}\`
 
 ## Release
-https://github.com/${{ steps.validate.outputs.repository }}/releases/tag/${VERSION}
+https://github.com/${REPO}/releases/tag/${VERSION}
 
 ## Testing
 Please verify the formula works before merging:
