@@ -3,8 +3,16 @@ name: Test Dispatch
 on:
   workflow_dispatch:
     inputs:
-      test:
-        description: 'Test input'
+      formula:
+        description: 'Formula name (e.g., ofsht)'
+        required: true
+        type: string
+      version:
+        description: 'Version tag (e.g., v0.1.5)'
+        required: true
+        type: string
+      repository:
+        description: 'Source repository (e.g., wadackel/ofsht)'
         required: true
         type: string
 
@@ -12,5 +20,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Echo input
-        run: echo "${{ inputs.test }}"
+      - name: Echo inputs
+        run: |
+          echo "Formula: ${{ inputs.formula }}"
+          echo "Version: ${{ inputs.version }}"
+          echo "Repository: ${{ inputs.repository }}"
