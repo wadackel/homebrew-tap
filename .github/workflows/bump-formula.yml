@@ -1,0 +1,114 @@
+name: Bump Formula
+
+on:
+  workflow_dispatch:
+    inputs:
+      formula:
+        description: 'Formula name (e.g., ofsht)'
+        required: true
+        type: string
+      version:
+        description: 'Version tag (e.g., v0.1.5)'
+        required: true
+        type: string
+      repository:
+        description: 'Source repository (e.g., wadackel/ofsht)'
+        required: true
+        type: string
+
+jobs:
+  update-formula:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout tap repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Homebrew
+        run: |
+          echo "/opt/homebrew/bin" >> $GITHUB_PATH
+
+      - name: Calculate SHA256 checksums
+        id: checksums
+        run: |
+          set -euo pipefail
+
+          FORMULA="${{ inputs.formula }}"
+          VERSION="${{ inputs.version }}"
+          REPO="${{ inputs.repository }}"
+
+          # Remove 'v' prefix if present
+          VERSION_NUM="${VERSION#v}"
+
+          echo "Calculating checksums for $FORMULA $VERSION_NUM..."
+
+          # Download and calculate SHA256 for arm64
+          ARM64_URL="https://github.com/${REPO}/releases/download/${VERSION}/${FORMULA}-aarch64-apple-darwin.tar.gz"
+          echo "Downloading arm64: $ARM64_URL"
+          ARM64_SHA=$(curl -sL "$ARM64_URL" | shasum -a 256 | awk '{print $1}')
+          echo "arm64_sha=$ARM64_SHA" >> "$GITHUB_OUTPUT"
+          echo "ARM64 SHA256: $ARM64_SHA"
+
+          # Download and calculate SHA256 for x86_64
+          X86_64_URL="https://github.com/${REPO}/releases/download/${VERSION}/${FORMULA}-x86_64-apple-darwin.tar.gz"
+          echo "Downloading x86_64: $X86_64_URL"
+          X86_64_SHA=$(curl -sL "$X86_64_URL" | shasum -a 256 | awk '{print $1}')
+          echo "x86_64_sha=$X86_64_SHA" >> "$GITHUB_OUTPUT"
+          echo "X86_64 SHA256: $X86_64_SHA"
+
+          echo "version_num=$VERSION_NUM" >> "$GITHUB_OUTPUT"
+
+      - name: Update formula file
+        run: |
+          set -euo pipefail
+
+          FORMULA="${{ inputs.formula }}"
+          VERSION="${{ steps.checksums.outputs.version_num }}"
+          ARM64_SHA="${{ steps.checksums.outputs.arm64_sha }}"
+          X86_64_SHA="${{ steps.checksums.outputs.x86_64_sha }}"
+
+          FORMULA_FILE="Formula/${FORMULA}.rb"
+
+          if [ ! -f "$FORMULA_FILE" ]; then
+            echo "Error: Formula file $FORMULA_FILE not found"
+            exit 1
+          fi
+
+          echo "Updating $FORMULA_FILE to version $VERSION..."
+
+          # Update arm64 URL and SHA256
+          sed -i.bak -E "s|download/v[0-9]+\.[0-9]+\.[0-9]+/${FORMULA}-aarch64|download/v${VERSION}/${FORMULA}-aarch64|g" "$FORMULA_FILE"
+          sed -i.bak -E "/on_arm do/,/end/ s/sha256 \"[a-f0-9]+\"/sha256 \"${ARM64_SHA}\"/" "$FORMULA_FILE"
+
+          # Update x86_64 URL and SHA256
+          sed -i.bak -E "s|download/v[0-9]+\.[0-9]+\.[0-9]+/${FORMULA}-x86_64|download/v${VERSION}/${FORMULA}-x86_64|g" "$FORMULA_FILE"
+          sed -i.bak -E "/on_intel do/,/end/ s/sha256 \"[a-f0-9]+\"/sha256 \"${X86_64_SHA}\"/" "$FORMULA_FILE"
+
+          # Clean up backup file
+          rm -f "${FORMULA_FILE}.bak"
+
+          echo "Formula updated successfully"
+          cat "$FORMULA_FILE"
+
+      - name: Commit and push changes
+        run: |
+          set -euo pipefail
+
+          FORMULA="${{ inputs.formula }}"
+          VERSION="${{ inputs.version }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add "Formula/${FORMULA}.rb"
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          git commit -m "chore: bump ${FORMULA} to ${VERSION}"
+          git push origin main
+
+          echo "Successfully bumped ${FORMULA} to ${VERSION}"
