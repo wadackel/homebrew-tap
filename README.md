@@ -23,8 +23,6 @@ brew install ofsht
 Command-line tool for managing Git worktrees with automation features.
 
 - **Repository**: [wadackel/ofsht](https://github.com/wadackel/ofsht)
-- **Install**: `brew install ofsht`
-- **Current Version**: 0.1.4
 
 ## Updating
 
