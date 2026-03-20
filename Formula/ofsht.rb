@@ -10,13 +10,13 @@ class Ofsht < Formula
 
   on_macos do
     on_arm do
-      url "https://github.com/wadackel/ofsht/releases/download/v0.5.0/ofsht-aarch64-apple-darwin.tar.gz"
-      sha256 "b976ddd1813e276dec071cba312c5d0e55a098afbfd7f2ed9d8a43f69c5cbb8b"
+      url "https://github.com/wadackel/ofsht/releases/download/v0.5.2/ofsht-aarch64-apple-darwin.tar.gz"
+      sha256 "a1e48a34269adb1c644124a289688c54a3cfad9b6346366a8c81caf57a91166e"
     end
 
     on_intel do
-      url "https://github.com/wadackel/ofsht/releases/download/v0.5.0/ofsht-x86_64-apple-darwin.tar.gz"
-      sha256 "f5f0c7212b24601261cc0f0d1232f58d775064cd378ff3a15066945e9e321cf0"
+      url "https://github.com/wadackel/ofsht/releases/download/v0.5.2/ofsht-x86_64-apple-darwin.tar.gz"
+      sha256 "f29c6e623d70d7843024af62426009338a32dcda778e1d8d7426a47716bf1b54"
     end
   end
 
